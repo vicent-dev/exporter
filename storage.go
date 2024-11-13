@@ -67,3 +67,25 @@ func (s *storage) dropTable() error {
 
 	return err
 }
+
+func (s *storage) getCount() (int, error) {
+	count := fmt.Sprintf("SELECT COUNT(*) FROM %s", s.tableName)
+
+	rows, err := s.cnn.Query(count)
+
+	if err != nil {
+		return 0, err
+	}
+
+	defer rows.Close()
+
+	var c int
+
+	rows.Next()
+
+	if err = rows.Scan(&c); err != nil {
+		return 0, nil
+	}
+
+	return c, nil
+}
