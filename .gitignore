@@ -1,3 +1,5 @@
 .env
 data/
 .idea
+exporter
+*.csv

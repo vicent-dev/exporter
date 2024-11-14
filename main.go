@@ -15,6 +15,7 @@ func run() error {
 
 	q := flag.String("q", "", "Query to fetch data to be exported")
 	directory := flag.String("d", ".", "Directory to save the exported file")
+	filename := flag.String("f", "data", "Filename exported file")
 
 	flag.Parse()
 
@@ -43,15 +44,15 @@ func run() error {
 		}
 	}(s)
 
-	f, err := createFile(*directory)
+	f, err, path := createFile(*directory, *filename)
 	if err != nil {
 		return err
 	}
 
 	if err := writeFileByChunks(f, s); err != nil {
-		alog.Error(err.Error())
+		return err
 	} else {
-		alog.Info("Data was exported!")
+		alog.Info("Data was exported: %s", path)
 	}
 
 	return nil
@@ -59,6 +60,6 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
-		panic(err)
+		alog.Error(err.Error())
 	}
 }

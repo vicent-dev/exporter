@@ -1,5 +1,5 @@
 run:
-	go run exporter -d=./data -q="select n.id id1, n.body, n2.id from notifications n inner join notifications n2 on n.id = n2.id"
+	go run exporter -f=notifications -d=. -q="select * from notifications limit 2000000"
 build:
 	go build exporter
 test:

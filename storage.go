@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"fmt"
+	"github.com/en-vee/alog"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/google/uuid"
 )
 
 const copySufix = "_export"
@@ -32,7 +35,7 @@ func newStorage(query string) (*storage, error) {
 		return nil, err
 	}
 
-	tableName := strings.ReplaceAll(uuid.New().String()+copySufix, "-", "")
+	tableName := strconv.Itoa(int(time.Now().Unix())) + copySufix
 
 	db := &storage{
 		cnn:       cnn,
@@ -88,4 +91,54 @@ func (s *storage) getCount() (int, error) {
 	}
 
 	return c, nil
+}
+
+func (s *storage) writeData(w *bufio.Writer, start, size int) error {
+	data := fmt.Sprintf("SELECT * FROM %s LIMIT %d,%d", s.tableName, start, size)
+	alog.Info("Exporting records from %d to %d.", start, start+size)
+	rows, err := s.cnn.Query(data)
+
+	if err != nil {
+		return err
+	}
+
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			alog.Error(err.Error())
+		}
+	}(rows)
+
+	cols, _ := rows.Columns()
+	vals := make([]interface{}, len(cols))
+	for i, _ := range cols {
+		vals[i] = new(sql.RawBytes)
+	}
+
+	if start == 0 {
+		if _, err := w.WriteString(strings.Join(cols, ";") + "\n"); err != nil {
+			return err
+		}
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(vals...); err != nil {
+			return err
+		}
+
+		var lsb strings.Builder
+		for i, v := range vals {
+			lsb.WriteString(string(*(v.(*sql.RawBytes))))
+			if i != len(vals)-1 {
+				lsb.WriteString(";")
+			}
+		}
+
+		lsb.WriteString("\n")
+		if _, err := w.WriteString(lsb.String()); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
