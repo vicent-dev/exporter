@@ -3,12 +3,12 @@
 Cli tool to export many unordered rows of a complex SQL query to a csv file.
 
 ```shell
-$ exporter -d=./data -q="select n.id id1, n.body, n2.id from notifications n inner join notifications n2 on n.id = n2.id"
+$ exporter -f=exported_data -d=./data -q="select * from notifications"
 ```
 
 ### Performance
 
-~ 2.2M rows simple table takes 10 seconds
+~ 2.2M rows simple table takes 10 seconds in my laptop. Exporter creates X goroutines to process the data depending on the cores of the machine.
 
 
 ```shell
