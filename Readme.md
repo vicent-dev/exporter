@@ -1,6 +1,6 @@
 ## Exporter
 
-Cli tool to export many unordered rows of a complex SQL query to a csv file.
+Cli tool to export a lot of unordered rows of a complex SQL query to a csv file.
 
 ```shell
 $ exporter -f=exported_data -d=./data -q="select * from notifications"
