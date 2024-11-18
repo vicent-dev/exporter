@@ -8,10 +8,7 @@ import (
 
 func run() error {
 	// process flags and load env vars
-	err := loadEnv()
-	if err != nil {
-		return err
-	}
+	loadEnv()
 
 	q := flag.String("q", "", "Query to fetch data to be exported")
 	directory := flag.String("d", ".", "Directory to save the exported file")

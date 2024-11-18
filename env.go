@@ -1,15 +1,14 @@
 package main
 
 import (
+	"github.com/en-vee/alog"
 	"github.com/joho/godotenv"
 )
 
-func loadEnv() error {
+func loadEnv() {
 	err := godotenv.Load(".env")
 
 	if err != nil {
-		return err
+		alog.Warn("Loading env vars from system", err.Error())
 	}
-
-	return nil
 }

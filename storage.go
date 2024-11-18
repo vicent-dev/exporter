@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/en-vee/alog"
 	"os"
@@ -11,36 +12,68 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 )
 
-const copySufix = "_export"
+const copyPrefix = "export"
 
 type storage struct {
 	cnn       *sql.DB
 	tableName string
 	query     string
+	driver    string
 }
 
 func newStorage(query string) (*storage, error) {
-	cnn, err := sql.Open("mysql", fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8&parseTime=True&loc=Local",
-		os.Getenv("DB_USER"),
-		os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_HOST"),
-		os.Getenv("DB_PORT"),
-		os.Getenv("DB_SCHEMA"),
-	))
+	driver := "mysql"
+	envDriver := os.Getenv("DB")
 
-	if err != nil {
-		return nil, err
+	if envDriver != "" {
+		driver = envDriver
 	}
 
-	tableName := strconv.Itoa(int(time.Now().Unix())) + copySufix
+	var cnn *sql.DB
+	var err error
+
+	switch driver {
+	case "mysql":
+		cnn, err = sql.Open("mysql", fmt.Sprintf(
+			"%s:%s@tcp(%s:%s)/%s?charset=utf8&parseTime=True&loc=Local",
+			os.Getenv("DB_USER"),
+			os.Getenv("DB_PASSWORD"),
+			os.Getenv("DB_HOST"),
+			os.Getenv("DB_PORT"),
+			os.Getenv("DB_SCHEMA"),
+		))
+		if err != nil {
+			return nil, err
+		}
+	case "postgres":
+		cnn, err = sql.Open("postgres", fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			os.Getenv("DB_HOST"),
+			os.Getenv("DB_PORT"),
+			os.Getenv("DB_USER"),
+			os.Getenv("DB_PASSWORD"),
+			os.Getenv("DB_SCHEMA"),
+		))
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cnn == nil {
+		return nil, errors.New("DB connection did not succeed")
+	}
+
+	tableName := copyPrefix + strconv.Itoa(int(time.Now().Unix()))
 
 	db := &storage{
 		cnn:       cnn,
 		query:     query,
 		tableName: tableName,
+		driver:    driver,
 	}
 
 	return db, nil
@@ -94,7 +127,16 @@ func (s *storage) getCount() (int, error) {
 }
 
 func (s *storage) writeData(w *bufio.Writer, start, size int) error {
-	data := fmt.Sprintf("SELECT * FROM %s LIMIT %d,%d", s.tableName, start, size)
+
+	var data string
+
+	switch s.driver {
+	case "mysql":
+		data = fmt.Sprintf("SELECT * FROM %s LIMIT %d,%d", s.tableName, start, size)
+	case "postgres":
+		data = fmt.Sprintf("SELECT * FROM %s OFFSET %d LIMIT %d", s.tableName, start, size)
+	}
+
 	alog.Info("Exporting records from %d to %d.", start, start+size)
 	rows, err := s.cnn.Query(data)
 
