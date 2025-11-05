@@ -3,6 +3,9 @@ package main
 import (
 	"errors"
 	"flag"
+	"runtime"
+	"sync"
+
 	"github.com/en-vee/alog"
 )
 
@@ -41,16 +44,58 @@ func run() error {
 		}
 	}(s)
 
-	f, err, path := createFile(*directory, *filename)
+	nThreads := runtime.GOMAXPROCS(0) - 1
+	fm := newFilesManager(*directory, *filename, nThreads)
+
 	if err != nil {
 		return err
 	}
 
-	if err := writeFileByChunks(f, s); err != nil {
+	if err := processInBatches(s, fm); err != nil {
 		return err
 	} else {
-		alog.Info("Data was exported: %s", path)
+		alog.Info("Data was exported: %s", fm.mainFilePath)
 	}
+
+	return nil
+}
+
+func processInBatches(s *storage, fm *filesManager) error {
+	wg := sync.WaitGroup{}
+
+	c64, err := s.getCount()
+
+	c := int(c64)
+
+	if c == 0 {
+		alog.Warn("No rows found based on criteria")
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	linesPerChunk := c / fm.nThreads
+
+	// for small exports we don't need more than one goroutines
+	if c < 100 {
+		linesPerChunk = c
+		wg.Add(1)
+		go s.extractChunk(linesPerChunk, &wg, 0, fm)
+	} else {
+		for i := 0; i <= fm.nThreads; i++ {
+			wg.Add(1)
+			go s.extractChunk(linesPerChunk, &wg, i, fm)
+		}
+	}
+
+	wg.Wait()
+
+	totalRows, _ := fm.mergePartFiles()
+	// fm.removePartFiles()
+
+	alog.Info("Count records exported: %d", totalRows)
 
 	return nil
 }

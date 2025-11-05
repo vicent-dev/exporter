@@ -1,15 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/en-vee/alog"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/en-vee/alog"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
@@ -126,9 +127,12 @@ func (s *storage) getCount() (int, error) {
 	return c, nil
 }
 
-func (s *storage) writeData(w *bufio.Writer, start, size int) error {
+func (s *storage) extractChunk(size int, wg *sync.WaitGroup, nThread int, fm *filesManager) error {
+
+	defer wg.Done()
 
 	var data string
+	start := size * nThread
 
 	switch s.driver {
 	case "mysql":
@@ -157,8 +161,9 @@ func (s *storage) writeData(w *bufio.Writer, start, size int) error {
 		vals[i] = new(sql.RawBytes)
 	}
 
+	var lsb strings.Builder
 	if start == 0 {
-		if _, err := w.WriteString(strings.Join(cols, ";") + "\n"); err != nil {
+		if _, err := lsb.WriteString(strings.Join(cols, ";") + "\n"); err != nil {
 			return err
 		}
 	}
@@ -168,7 +173,6 @@ func (s *storage) writeData(w *bufio.Writer, start, size int) error {
 			return err
 		}
 
-		var lsb strings.Builder
 		for i, v := range vals {
 			lsb.WriteString(string(*(v.(*sql.RawBytes))))
 			if i != len(vals)-1 {
@@ -177,10 +181,9 @@ func (s *storage) writeData(w *bufio.Writer, start, size int) error {
 		}
 
 		lsb.WriteString("\n")
-		if _, err := w.WriteString(lsb.String()); err != nil {
-			return err
-		}
 	}
+
+	fm.writeInPartFile(lsb.String(), nThread)
 
 	return nil
 }

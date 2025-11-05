@@ -3,73 +3,137 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"github.com/en-vee/alog"
 	"os"
-	"runtime"
-	"sync"
 	"time"
+
+	"github.com/en-vee/alog"
 )
 
-func createFile(directory string, filename string) (*os.File, error, string) {
-	if err := os.MkdirAll(directory, 0755); err != nil {
-		return nil, err, ""
-	}
-
-	path := fmt.Sprintf("%s/%s_%d.csv",
-		directory,
-		filename,
-		time.Now().Unix(),
-	)
-	f, err := os.Create(path)
-
-	return f, err, path
+type filesManager struct {
+	mainFile     *os.File
+	mainFilePath string
+	directory    string
+	filename     string
+	time         int64
+	nThreads     int
 }
 
-func writeFileByChunks(f *os.File, s *storage) error {
-	wg := sync.WaitGroup{}
-	maxWg := runtime.GOMAXPROCS(0)
-	c, err := s.getCount()
-
-	if err != nil {
-		return err
+func newFilesManager(directory string, filename string, nThreads int) *filesManager {
+	fm := filesManager{
+		directory: directory,
+		filename:  filename,
+		time:      time.Now().Unix(),
+		nThreads:  nThreads,
 	}
 
-	linesPerChunk := c / maxWg
-
-	// for small exports we don't need more than one goroutines
-	if c < 100 {
-		linesPerChunk = c
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		panic(err.Error())
 	}
 
-	// we want to force the first chunk processed first to add headers
-	wg.Add(1)
-	writeChunk(f, 0, linesPerChunk, s, &wg)
+	for i := 0; i <= nThreads; i++ {
+		_, err := os.Create(
+			fmt.Sprintf("%s/%s_%d_part_%d.csv",
+				fm.directory,
+				fm.filename,
+				fm.time,
+				i,
+			),
+		)
 
-	if linesPerChunk != c {
-		for i := 1; i <= maxWg; i++ {
-			wg.Add(1)
-			go writeChunk(f, i*linesPerChunk, linesPerChunk, s, &wg)
+		if err != nil {
+			panic(err.Error())
 		}
 	}
 
-	wg.Wait()
-
-	alog.Info("Count records exported: %d", c)
-
-	return nil
+	return &fm
 }
 
-func writeChunk(f *os.File, start, size int, s *storage, wg *sync.WaitGroup) {
-	defer wg.Done()
-	w := bufio.NewWriter(f)
+func (fm *filesManager) writeInPartFile(fileContent string, nThread int) {
 
-	if err := s.writeData(w, start, size); err != nil {
-		alog.Error(err.Error())
-		return
+	f, err := os.OpenFile(
+		fmt.Sprintf("%s/%s_%d_part_%d.csv",
+			fm.directory,
+			fm.filename,
+			fm.time,
+			nThread,
+		),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0644,
+	)
+
+	if err != nil {
+		panic(err.Error())
 	}
 
-	if err := w.Flush(); err != nil {
-		alog.Error(err.Error())
-		return
+	defer f.Close()
+	f.WriteString(fileContent)
+}
+
+func (fm *filesManager) mergePartFiles() (int, error) {
+	var err error
+	totalRows := 0
+
+	path := fmt.Sprintf("%s/%s_%d.csv",
+		fm.directory,
+		fm.filename,
+		fm.time,
+	)
+
+	fm.mainFilePath = path
+	fm.mainFile, err = os.Create(path)
+	defer fm.mainFile.Close()
+
+	if err != nil {
+		panic(err)
+	}
+
+	for i := 0; i <= fm.nThreads; i++ {
+		pf, err := os.Open(
+			fmt.Sprintf("%s/%s_%d_part_%d.csv",
+				fm.directory,
+				fm.filename,
+				fm.time,
+				i,
+			),
+		)
+
+		if err != nil {
+			panic(err)
+		}
+
+		scanner := bufio.NewScanner(pf)
+		scanner.Split(bufio.ScanLines)
+
+		for scanner.Scan() {
+			totalRows++
+
+			fm.mainFile.WriteString(scanner.Text() + "\n")
+		}
+
+		if err := scanner.Err(); err != nil {
+			panic(err)
+		}
+
+		pf.Close()
+
+	}
+
+	return totalRows, nil
+}
+
+func (fm *filesManager) removePartFiles() {
+	for i := 0; i <= fm.nThreads; i++ {
+		err := os.Remove(
+			fmt.Sprintf("%s/%s_%d_part_%d.csv",
+				fm.directory,
+				fm.filename,
+				fm.time,
+				i,
+			),
+		)
+
+		if err != nil {
+			alog.Error(err.Error())
+		}
 	}
 }
